@@ -1,0 +1,74 @@
+---
+- name: Check if K3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+  
+- name: Check if node is already joined
+  stat:
+    path: /var/lib/rancher/k3s/agent/kubelet.kubeconfig
+  register: k3s_joined
+  when: k3s_binary.stat.exists
+
+# Get token from the primary control node if needed
+- name: Get K3s token from primary control node
+  set_fact:
+    k3s_token: "{{ hostvars[primary_control_node]['k3s_token'] }}"
+  when: not k3s_joined.stat.exists | default(true)
+
+# Join worker node to the cluster
+- name: Install K3s agent on worker node
+  block:
+    - name: Download K3s installation script
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: '0755'
+      
+    - name: Run K3s agent installation
+      shell: >
+        /tmp/k3s-install.sh
+        --node-name {{ inventory_hostname }}
+        --flannel-backend wireguard
+      args:
+        creates: /usr/local/bin/k3s
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_URL: "https://{{ primary_control_ip }}:6443"
+        K3S_TOKEN: "{{ k3s_token }}"
+      
+    - name: Wait for K3s service to be running
+      systemd:
+        name: k3s-agent
+        state: started
+        enabled: yes
+  when: not k3s_joined.stat.exists | default(true)
+
+# Prepare worker node for OpenEdX data
+- name: Prepare worker node for OpenEdX data
+  block:
+    - name: Create OpenEdX data directory
+      file:
+        path: /data
+        state: directory
+        mode: '0755'
+      
+    - name: Mount OpenEdX data if not already mounted
+      mount:
+        path: /data
+        src: /dev/vdb
+        fstype: ext4
+        state: mounted
+      ignore_errors: yes
+      
+    - name: Create OpenEdX subdirectories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - /data/mysql
+        - /data/mongodb
+        - /data/openedx-media
+        - /data/openedx-static
+        - /data/lms_storage
