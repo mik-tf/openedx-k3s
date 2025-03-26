@@ -91,7 +91,7 @@ resource "grid_deployment" "nodes" {
 
     # Main data mount
     mounts {
-      disk_name   = "data_${each.key}"
+      name        = "data_${each.key}"
       mount_point = "/var/lib/rancher"
     }
 
@@ -99,7 +99,7 @@ resource "grid_deployment" "nodes" {
     dynamic "mounts" {
       for_each = each.value.is_control ? [] : [1]
       content {
-        disk_name   = "openedx_data_${each.key}"
+        name        = "openedx_data_${each.key}"
         mount_point = "/data"
       }
     }
