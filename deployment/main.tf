@@ -39,8 +39,8 @@ resource "random_bytes" "ip_seed" {
 }
 
 # Mycelium overlay network
-resource "grid_network" "k3s_net" {
-  name        = "k3s_network"
+resource "grid_network" "tfgrid_net" {
+  name        = "tfgrid_ha"
   nodes       = local.all_nodes
   ip_range    = "10.1.0.0/16"
   add_wg_access = true
@@ -60,20 +60,11 @@ resource "grid_deployment" "nodes" {
   }
 
   node         = each.value.node_id
-  network_name = grid_network.k3s_net.name
+  network_name = grid_network.tfgrid_net.name
 
   disks {
-    name = "data_${each.key}"
+    name = "disk_${each.key}"
     size = each.value.is_control ? var.control_disk : var.worker_disk
-  }
-
-  # Additional data disk for worker nodes
-  dynamic "disks" {
-    for_each = each.value.is_control ? [] : [1]
-    content {
-      name = "openedx_data_${each.key}"
-      size = 100  # Fixed 100GB for OpenEdX data
-    }
   }
 
   vms {
@@ -89,21 +80,36 @@ resource "grid_deployment" "nodes" {
       SSH_KEY = var.SSH_KEY
     }
 
-    # Main data mount
     mounts {
-      name        = "data_${each.key}"
-      mount_point = "/var/lib/rancher"
+      name        = "disk_${each.key}"
+      mount_point = "/data"
     }
-
-    # Conditional OpenEdX data mount for worker nodes
-    dynamic "mounts" {
-      for_each = each.value.is_control ? [] : [1]
-      content {
-        name        = "openedx_data_${each.key}"
-        mount_point = "/data"
-      }
-    }
-
     rootfs_size = 20480
   }
+}
+
+# Outputs (remain the same as previous version)
+output "wireguard_ips" {
+  value = {
+    for key, dep in grid_deployment.nodes : 
+    key => dep.vms[0].ip
+  }
+}
+
+output "mycelium_ips" {
+  value = {
+    for key, dep in grid_deployment.nodes : 
+    key => dep.vms[0].mycelium_ip
+  }
+}
+
+output "worker_public_ips" {
+  value = {
+    for key, dep in grid_deployment.nodes : 
+    key => dep.vms[0].computedip if contains(var.worker_nodes, dep.node)
+  }
+}
+
+output "wg_config" {
+  value = grid_network.tfgrid_net.access_wg_config
 }

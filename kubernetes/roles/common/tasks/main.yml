@@ -106,12 +106,14 @@
     - /var/lib/rancher/k3s/server
   become: true
 
-# Configure firewall rules for K3s
-- name: Open K3s ports
-  ufw:
-    rule: allow
-    port: "{{ item }}"
-    proto: tcp
+# Configure firewall rules for K3s using iptables
+- name: Open K3s TCP ports
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item }}"
+    jump: ACCEPT
+    comment: "K3s: allow port {{ item }}"
   with_items:
     - "6443"  # Kubernetes API
     - "10250" # Kubelet
@@ -122,5 +124,31 @@
     - "51821" # Wireguard
     - "80"    # HTTP
     - "443"   # HTTPS
-  ignore_errors: yes
+  become: true
+  register: iptables_rules
+  
+- name: Open K3s UDP ports
+  iptables:
+    chain: INPUT
+    protocol: udp
+    destination_port: "{{ item }}"
+    jump: ACCEPT
+    comment: "K3s: allow UDP port {{ item }}"
+  with_items:
+    - "8472"  # Canal/Flannel VXLAN
+    - "51820" # Wireguard
+    - "51821" # Wireguard
+  become: true
+  
+- name: Save iptables rules
+  shell: "iptables-save > /etc/iptables/rules.v4"
+  args:
+    creates: /etc/iptables/rules.v4
+  become: true
+  when: iptables_rules.changed
+
+- name: Ensure iptables-persistent is installed to load rules on boot
+  apt:
+    name: iptables-persistent
+    state: present
   become: true
