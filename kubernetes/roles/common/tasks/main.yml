@@ -140,15 +140,20 @@
     - "51821" # Wireguard
   become: true
   
-- name: Save iptables rules
-  shell: "iptables-save > /etc/iptables/rules.v4"
-  args:
-    creates: /etc/iptables/rules.v4
-  become: true
-  when: iptables_rules.changed
-
 - name: Ensure iptables-persistent is installed to load rules on boot
   apt:
     name: iptables-persistent
     state: present
   become: true
+
+- name: Create iptables rules directory
+  file:
+    path: /etc/iptables
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Save iptables rules
+  shell: "iptables-save > /etc/iptables/rules.v4"
+  become: true
+  when: iptables_rules.changed
