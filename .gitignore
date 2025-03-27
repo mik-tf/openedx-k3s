@@ -64,3 +64,6 @@ secrets/
 
 # Env File
 credentials.auto.tfvars
+
+# OpenEdX configuration
+kubernetes/roles/tutor/defaults/main.yml

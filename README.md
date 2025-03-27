@@ -26,13 +26,24 @@ This repository combines infrastructure provisioning via Terraform/OpenTofu with
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/openedx-k3s.git
+   git clone https://github.com/mik-tf/openedx-k3s
    cd openedx-k3s
    ```
 
-2. Deploy with a single command:
+2. Configure your deployment:
+   ```bash
+   # Set up Terraform/OpenTofu configuration
+   cp deployment/terraform.tfvars.example deployment/terraform.tfvars
+   nano deployment/terraform.tfvars
+   
+   # Set up OpenEdX configuration
+   cp kubernetes/roles/tutor/defaults/main.yml.example kubernetes/roles/tutor/defaults/main.yml
+   nano kubernetes/roles/tutor/defaults/main.yml
    ```
-   ./scripts/deploy.sh yourdomain.com
+
+3. Deploy with a single command:
+   ```
+   ./scripts/deploy.sh
    ```
 
    This will:
@@ -59,17 +70,15 @@ openedx-k3s/
 
 ## Configuration
 
-### Customizing the Deployment
+### Advanced Configuration
 
-Edit the configuration files in the `deployment` directory to adjust the infrastructure settings.
+Both configuration files (`terraform.tfvars` and `main.yml`) contain comments explaining each setting. You can customize:
 
-### Domain Configuration
+- **Infrastructure**: Number of nodes, instance types, region, etc.
+- **OpenEdX Platform**: Custom themes, languages, admin credentials
+- **Kubernetes**: Storage classes, networking settings
 
-Specify your domain when running the deployment script:
-
-```
-./scripts/deploy.sh yourdomain.com
-```
+Refer to the example files for all available configuration options.
 
 ## Troubleshooting
 

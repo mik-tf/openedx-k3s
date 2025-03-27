@@ -1,0 +1,18 @@
+---
+# Example OpenEdX configuration - Copy this file to main.yml and modify as needed
+
+# Domain configuration
+openedx_domain: "openedx.example.com"  # Replace with your domain
+
+# Platform settings
+platform_name: "Open edX on K3s"
+contact_email: "admin@example.com"
+language_code: "en"
+
+# Admin user settings
+admin_password: "changeme"  # Important: Replace with a secure password
+
+# Additional OpenEdX settings
+# Uncomment and modify as needed
+# theme_name: "custom-theme"
+# enable_https: true
