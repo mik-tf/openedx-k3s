@@ -11,9 +11,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TF_CONFIG_DIR_DEPLOYMENT="${REPO_ROOT}/deployment"  # Absolute path to deployment directory
 TF_CONFIG_DIR_KUBERNETES="${REPO_ROOT}/kubernetes"  # Absolute path to kubernetes directory
 
-# Get domain from command line argument or use default
-DOMAIN=${1:-"onlineschool.com"}
-echo "Using domain: $DOMAIN"
+# Domain configuration is now managed through Ansible in tutor/defaults/main.yml
 
 # --- Cleanup (if needed) ---
 cd "$TF_CONFIG_DIR_DEPLOYMENT" || exit 1  # Exit if cd fails
@@ -77,18 +75,21 @@ echo "Waiting for K3s cluster to stabilize (60 seconds)..."
 sleep 60
 
 # Deploy OpenEdX with Tutor
-echo "Deploying OpenEdX with Tutor on domain $DOMAIN..."
-if ! ansible-playbook k3s-cluster.yml -t tutor -e "openedx_domain=$DOMAIN"; then
+echo "Deploying OpenEdX with Tutor (using domain from Ansible configuration)..."
+if ! ansible-playbook k3s-cluster.yml -t tutor; then
   echo "OpenEdX deployment failed!"
   # Add additional error handling/notification here
   exit 1
 fi
 
+# Extract domain from Ansible configuration for DNS setup
+OPENEDX_DOMAIN=$(grep -oP 'openedx_domain: "\K[^"]++' "${REPO_ROOT}/kubernetes/roles/tutor/defaults/main.yml")
+
 # Configure DNS
-echo "Configuring DNS for OpenEdX ($DOMAIN)..."
-bash "${SCRIPT_DIR}/configure-dns.sh" "$DOMAIN"
+echo "Configuring DNS for OpenEdX (${OPENEDX_DOMAIN})..."
+bash "${SCRIPT_DIR}/configure-dns.sh" "${OPENEDX_DOMAIN}"
 
 echo "Deployment completed successfully!"
-echo "OpenEdX will be available at: https://$DOMAIN"
-echo "Studio will be available at: https://studio.$DOMAIN"
+echo "OpenEdX will be available at: https://${OPENEDX_DOMAIN}"
+echo "Studio will be available at: https://studio.${OPENEDX_DOMAIN}"
 echo "Admin credentials: username=admin, password=securepassword"
