@@ -8,13 +8,36 @@
   stat:
     path: /var/lib/rancher/k3s/agent/kubelet.kubeconfig
   register: k3s_joined
-  when: k3s_binary.stat.exists
+  when: k3s_binary is defined and k3s_binary.stat is defined and k3s_binary.stat.exists
 
-# Get token from the primary control node if needed
-- name: Get K3s token from primary control node
-  set_fact:
-    k3s_token: "{{ hostvars[primary_control_node]['k3s_token'] }}"
-  when: not k3s_joined.stat.exists | default(true)
+- name: Check if k3s-agent service is running
+  systemd:
+    name: k3s-agent
+    state: started
+  register: k3s_agent_running
+  ignore_errors: yes
+
+# For worker nodes, we need to uninstall k3s agent if it exists but isn't working
+- name: Uninstall K3s agent if it exists but is not working properly
+  ansible.builtin.shell: /usr/local/bin/k3s-uninstall.sh
+  args:
+    removes: /usr/local/bin/k3s-agent-uninstall.sh
+  register: k3s_uninstall
+  ignore_errors: yes
+  when: k3s_binary is defined and k3s_binary.stat is defined and k3s_binary.stat.exists and k3s_agent_running is defined and k3s_agent_running.failed is defined and k3s_agent_running.failed
+
+# Wait briefly for uninstall to complete
+- name: Wait for uninstall to complete
+  ansible.builtin.pause:
+    seconds: 5
+  when: k3s_uninstall.changed | default(false)
+
+# Re-check if K3s is installed after possible uninstall
+- name: Re-check if K3s is installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary_after_cleanup
+  when: k3s_uninstall.changed | default(false)
 
 # Join worker node to the cluster
 - name: Install K3s agent on worker node
@@ -24,25 +47,41 @@
         url: https://get.k3s.io
         dest: /tmp/k3s-install.sh
         mode: '0755'
+
+    - name: Manually fetch token from primary control node
+      delegate_to: "{{ primary_control_node }}"
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_slurp
+      become: true
+      
+    - name: Set token fact
+      set_fact:
+        k3s_token: "{{ k3s_token_slurp['content'] | b64decode | trim }}"
       
     - name: Run K3s agent installation
       shell: >
+        INSTALL_K3S_EXEC="--node-name {{ inventory_hostname }} --flannel-backend=vxlan --no-deploy=servicelb --no-deploy=traefik"
         /tmp/k3s-install.sh
-        --node-name {{ inventory_hostname }}
-        --flannel-backend wireguard
       args:
         creates: /usr/local/bin/k3s
       environment:
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
         K3S_URL: "https://{{ primary_control_ip }}:6443"
         K3S_TOKEN: "{{ k3s_token }}"
+      async: 600
+      poll: 10
       
     - name: Wait for K3s service to be running
       systemd:
         name: k3s-agent
         state: started
         enabled: yes
-  when: not k3s_joined.stat.exists | default(true)
+  when: (k3s_binary is not defined) or 
+        (k3s_binary.stat is not defined) or 
+        (k3s_binary is defined and k3s_binary.stat is defined and not k3s_binary.stat.exists) or 
+        (k3s_uninstall is defined and k3s_uninstall.changed | default(false)) or 
+        (k3s_binary_after_cleanup is defined and k3s_binary_after_cleanup.stat is defined and not k3s_binary_after_cleanup.stat.exists)
 
 # Prepare worker node for OpenEdX data
 - name: Prepare worker node for OpenEdX data

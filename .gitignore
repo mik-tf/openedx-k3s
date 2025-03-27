@@ -18,7 +18,6 @@ state.json
 
 # Ansible
 *.retry
-inventory.ini
 ansible_collections/
 
 # Python
