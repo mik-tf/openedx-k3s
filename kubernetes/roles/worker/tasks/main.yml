@@ -61,7 +61,7 @@
       
     - name: Run K3s agent installation
       shell: >
-        INSTALL_K3S_EXEC="--node-name {{ inventory_hostname }} --flannel-backend=vxlan --no-deploy=servicelb --no-deploy=traefik"
+        INSTALL_K3S_EXEC="--node-name={{ inventory_hostname }} --snapshotter=native"
         /tmp/k3s-install.sh
       args:
         creates: /usr/local/bin/k3s
