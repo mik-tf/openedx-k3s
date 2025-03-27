@@ -1,0 +1,159 @@
+---
+# Preparation tasks for primary control node (main tutor configuration)
+
+- name: Check if tutor is already installed
+  command: which tutor
+  register: tutor_check
+  ignore_errors: yes
+  changed_when: false
+
+- name: Install tutor
+  block:
+    - name: Install Python dependencies
+      apt:
+        name:
+          - python3-pip
+          - python3-venv
+        state: present
+        update_cache: yes
+      
+    - name: Create a virtual environment for tutor
+      command: python3 -m venv /opt/tutor-venv
+      args:
+        creates: /opt/tutor-venv
+      
+    - name: Install tutor in virtual environment with full plugins
+      pip:
+        name: "tutor[full]"
+        state: present
+        virtualenv: /opt/tutor-venv
+      
+    - name: Create symlink for tutor
+      file:
+        src: /opt/tutor-venv/bin/tutor
+        dest: /usr/local/bin/tutor
+        state: link
+      
+    - name: Verify tutor is installed
+      command: tutor --version
+      register: tutor_version
+      
+    - name: Display tutor version
+      debug:
+        msg: "Tutor version: {{ tutor_version.stdout }}"
+  when: tutor_check.rc != 0
+
+- name: Create tutor Kubernetes plugin directory
+  file:
+    path: ~/.local/share/tutor-plugins
+    state: directory
+    mode: '0755'
+
+- name: Configure tutor
+  block:
+    - name: Initialize tutor configuration
+      command: /opt/tutor-venv/bin/tutor config save
+      register: config_init
+      changed_when: config_init.rc == 0
+      
+    - name: Skip plugin enabling - will be done manually
+      debug:
+        msg: "Skipping plugin enabling - can be done manually with 'tutor plugins enable k8s' if needed"
+
+- name: Get worker nodes IPs from Ansible inventory
+  set_fact:
+    worker_nodes_ips: "{{ groups['k3s_node'] | map('extract', hostvars, ['ansible_host']) | list }}"
+
+- name: Configure tutor for OpenEdX
+  block:
+    - name: Set OpenEdX configuration
+      command: "{{ item }}"
+      with_items:
+        - tutor config save --set LMS_HOST={{ openedx_domain }}
+        - tutor config save --set CMS_HOST=studio.{{ openedx_domain }}
+        - tutor config save --set ENABLE_HTTPS=true
+        - tutor config save --set PLATFORM_NAME="{{ platform_name | default('Open edX on K3s') }}"
+        - tutor config save --set CONTACT_EMAIL={{ contact_email | default('admin@example.com') }}
+        - tutor config save --set LANGUAGE_CODE={{ language_code | default('en') }}
+        - tutor config save --set OPENEDX_COMMON_VERSION=nutmeg
+        - tutor config save --set K8S_NAMESPACE=openedx
+        - tutor config save --set K8S_INGRESS_ENABLED=true
+      register: tutor_config
+      changed_when: tutor_config.rc == 0
+      
+    - name: Set admin credentials
+      command: >
+        tutor config save --set OPENEDX_COMMON_ACCOUNT_PASSWORD={{ admin_password }}
+      register: tutor_credentials
+      changed_when: tutor_credentials.rc == 0
+
+- name: Create OpenEdX namespace
+  command: kubectl create namespace openedx
+  register: create_namespace
+  failed_when: create_namespace.rc != 0 and "AlreadyExists" not in create_namespace.stderr
+
+- name: Initialize OpenEdX on Kubernetes
+  block:
+    - name: Deploy OpenEdX to K3s
+      command: /opt/tutor-venv/bin/tutor k8s launch
+      register: tutor_deploy
+      changed_when: tutor_deploy.rc == 0
+      
+    - name: Wait for deployments to be ready
+      shell: >
+        kubectl wait --namespace openedx
+        --for=condition=ready pod
+        --selector=app.kubernetes.io/instance=openedx
+        --timeout=300s
+      ignore_errors: yes
+      
+    - name: Create LoadBalancer service for OpenEdX
+      copy:
+        content: |
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: tutor-lb
+            namespace: openedx
+          spec:
+            type: LoadBalancer
+            ports:
+            - name: http
+              port: 80
+              targetPort: 80
+            - name: https
+              port: 443
+              targetPort: 443
+            selector:
+              app.kubernetes.io/name: nginx
+        dest: /tmp/tutor-lb.yaml
+      
+    - name: Apply LoadBalancer service
+      command: kubectl apply -f /tmp/tutor-lb.yaml
+      register: lb_result
+      changed_when: lb_result.rc == 0
+      
+    - name: Wait for LoadBalancer to get an external IP
+      shell: kubectl get svc -n openedx tutor-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      register: lb_ip
+      retries: 30
+      delay: 10
+      until: lb_ip.stdout != ""
+      changed_when: false
+      
+    - name: Display LoadBalancer IP
+      debug:
+        msg: "OpenEdX is now available at https://{{ openedx_domain }} via IP {{ lb_ip.stdout }}"
+
+- name: Initialize OpenEdX platform
+  block:
+    - name: Create OpenEdX admin user and database
+      command: tutor k8s init
+      register: tutor_init
+      changed_when: tutor_init.rc == 0
+      
+    - name: Import demo course
+      command: tutor k8s importdemocourse
+      register: tutor_demo
+      changed_when: tutor_demo.rc == 0
+      ignore_errors: yes

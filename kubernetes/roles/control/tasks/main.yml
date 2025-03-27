@@ -22,16 +22,36 @@
         url: https://get.k3s.io
         dest: /tmp/k3s-install.sh
         mode: '0755'
+        force: true
+      register: k3s_download
+      retries: 3
+      delay: 5
+      until: k3s_download is succeeded
     
+    - name: Pre-download K3s binary for primary
+      get_url:
+        url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s"
+        dest: /tmp/k3s-binary
+        mode: '0755'
+        force: true
+      register: k3s_binary_download
+      retries: 3
+      delay: 5
+      until: k3s_binary_download is succeeded
+      ignore_errors: true
+
     - name: Run K3s installation on primary control node
       shell: >
         INSTALL_K3S_EXEC="--snapshotter=fuse-overlayfs" /tmp/k3s-install.sh
         --cluster-init
         --tls-san {{ primary_control_ip }}
         --node-name {{ inventory_hostname }}
+        --node-ip={{ ansible_host }}
         --write-kubeconfig-mode 644
         --disable traefik
         --flannel-backend vxlan
+        --flannel-iface="eth0"
+        --no-deploy servicelb
       args:
         creates: /usr/local/bin/k3s
       environment:
@@ -79,16 +99,36 @@
         url: https://get.k3s.io
         dest: /tmp/k3s-install.sh
         mode: '0755'
+        force: true
+      register: k3s_download
+      retries: 3
+      delay: 5
+      until: k3s_download is succeeded
     
+    - name: Pre-download K3s binary for secondary
+      get_url:
+        url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s"
+        dest: /tmp/k3s-binary
+        mode: '0755'
+        force: true
+      register: k3s_binary_download_secondary
+      retries: 3
+      delay: 5
+      until: k3s_binary_download_secondary is succeeded
+      ignore_errors: true
+
     - name: Run K3s installation on secondary control node
       shell: >
         INSTALL_K3S_EXEC="--snapshotter=fuse-overlayfs" /tmp/k3s-install.sh
-        --server https://{{ hostvars[primary_control_node]['ansible_host'] }}:6443
+        --server https://{{ primary_control_ip }}:6443
         --token {{ k3s_token }}
         --node-name {{ inventory_hostname }}
+        --node-ip={{ ansible_host }}
         --write-kubeconfig-mode 644
         --disable traefik
         --flannel-backend vxlan
+        --flannel-iface="eth0"
+        --no-deploy servicelb
       args:
         creates: /usr/local/bin/k3s
       environment:
@@ -149,10 +189,21 @@
         fi
         kubectl get nodes $NODE -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
       register: node_ready
-      retries: 10
-      delay: 10
+      retries: 20
+      delay: 15
       until: node_ready.stdout == "True"
       changed_when: false
+      
+    - name: Check CNI status
+      shell: |
+        kubectl get pods -n kube-system | grep flannel
+      register: cni_status
+      changed_when: false
+      ignore_errors: true
+      
+    - name: Debug CNI status
+      debug:
+        var: cni_status.stdout_lines
   
 - name: Install Helm on control nodes
   block:

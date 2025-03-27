@@ -47,6 +47,11 @@
         url: https://get.k3s.io
         dest: /tmp/k3s-install.sh
         mode: '0755'
+        force: true
+      register: k3s_download
+      retries: 3
+      delay: 5
+      until: k3s_download is succeeded
 
     - name: Manually fetch token from primary control node
       delegate_to: "{{ primary_control_node }}"
@@ -59,9 +64,30 @@
       set_fact:
         k3s_token: "{{ k3s_token_slurp['content'] | b64decode | trim }}"
       
+    - name: Pre-download K3s binary
+      get_url:
+        url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s"
+        dest: /tmp/k3s-binary
+        mode: '0755'
+        force: true
+      register: k3s_binary_download
+      retries: 3
+      delay: 5
+      until: k3s_binary_download is succeeded
+      ignore_errors: true
+      
+    - name: Create K3s install directory
+      file:
+        path: /var/lib/rancher/k3s/agent
+        state: directory
+        mode: '0755'
+      
     - name: Run K3s agent installation
       shell: >
-        INSTALL_K3S_EXEC="--node-name={{ inventory_hostname }} --snapshotter=native"
+        INSTALL_K3S_EXEC="--node-name={{ inventory_hostname }} \
+        --snapshotter=native \
+        --node-ip={{ ansible_host }} \
+        --flannel-backend=vxlan"
         /tmp/k3s-install.sh
       args:
         creates: /usr/local/bin/k3s
@@ -69,6 +95,7 @@
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
         K3S_URL: "https://{{ primary_control_ip }}:6443"
         K3S_TOKEN: "{{ k3s_token }}"
+        INSTALL_K3S_SKIP_DOWNLOAD: "{{ k3s_binary_download is succeeded | ternary('true', 'false') }}"
       async: 600
       poll: 10
       
@@ -82,32 +109,3 @@
         (k3s_binary is defined and k3s_binary.stat is defined and not k3s_binary.stat.exists) or 
         (k3s_uninstall is defined and k3s_uninstall.changed | default(false)) or 
         (k3s_binary_after_cleanup is defined and k3s_binary_after_cleanup.stat is defined and not k3s_binary_after_cleanup.stat.exists)
-
-# Prepare worker node for OpenEdX data
-- name: Prepare worker node for OpenEdX data
-  block:
-    - name: Create OpenEdX data directory
-      file:
-        path: /data
-        state: directory
-        mode: '0755'
-      
-    - name: Mount OpenEdX data if not already mounted
-      mount:
-        path: /data
-        src: /dev/vdb
-        fstype: ext4
-        state: mounted
-      ignore_errors: yes
-      
-    - name: Create OpenEdX subdirectories
-      file:
-        path: "{{ item }}"
-        state: directory
-        mode: '0755'
-      with_items:
-        - /data/mysql
-        - /data/mongodb
-        - /data/openedx-media
-        - /data/openedx-static
-        - /data/lms_storage
