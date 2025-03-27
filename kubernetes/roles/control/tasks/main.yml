@@ -25,13 +25,13 @@
     
     - name: Run K3s installation on primary control node
       shell: >
-        /tmp/k3s-install.sh
+        INSTALL_K3S_EXEC="--snapshotter=fuse-overlayfs" /tmp/k3s-install.sh
         --cluster-init
         --tls-san {{ primary_control_ip }}
         --node-name {{ inventory_hostname }}
         --write-kubeconfig-mode 644
         --disable traefik
-        --flannel-backend wireguard
+        --flannel-backend vxlan
       args:
         creates: /usr/local/bin/k3s
       environment:
@@ -82,17 +82,19 @@
     
     - name: Run K3s installation on secondary control node
       shell: >
-        /tmp/k3s-install.sh
-        --server https://{{ primary_control_ip }}:6443
+        INSTALL_K3S_EXEC="--snapshotter=fuse-overlayfs" /tmp/k3s-install.sh
+        --server https://{{ hostvars[primary_control_node]['ansible_host'] }}:6443
         --token {{ k3s_token }}
         --node-name {{ inventory_hostname }}
         --write-kubeconfig-mode 644
         --disable traefik
-        --flannel-backend wireguard
+        --flannel-backend vxlan
       args:
         creates: /usr/local/bin/k3s
       environment:
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
+      register: k3s_secondary_install
+      ignore_errors: no
       
     - name: Wait for K3s service to be running
       systemd:
@@ -125,8 +127,27 @@
         regexp: 'https://127.0.0.1:6443'
         replace: 'https://{{ primary_control_ip }}:6443'
         
+    - name: List all nodes to identify how this node registered
+      shell: kubectl get nodes -o wide
+      register: node_list
+      changed_when: false
+      
+    - name: Debug node list
+      debug:
+        var: node_list.stdout_lines
+    
     - name: Wait for node to be Ready
-      shell: kubectl get nodes {{ inventory_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      shell: |
+        NODE=$(kubectl get nodes --no-headers | grep -i {{ inventory_hostname }} | awk '{print $1}')
+        if [ -z "$NODE" ]; then
+          # Fall back to IP address search if hostname not found
+          NODE=$(kubectl get nodes -o wide --no-headers | grep {{ ansible_host }} | awk '{print $1}')
+        fi
+        if [ -z "$NODE" ]; then
+          echo "Node not found by name or IP"
+          exit 1
+        fi
+        kubectl get nodes $NODE -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
       register: node_ready
       retries: 10
       delay: 10

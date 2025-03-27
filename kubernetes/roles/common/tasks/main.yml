@@ -24,6 +24,7 @@
       - ipvsadm
       - openssl
       - conntrack
+      - fuse-overlayfs
     state: present
     update_cache: yes
   become: true
