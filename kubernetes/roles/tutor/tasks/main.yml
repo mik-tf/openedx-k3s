@@ -7,17 +7,30 @@
 
 - name: Install tutor
   block:
-    - name: Install pip3
+    - name: Install Python dependencies
       apt:
-        name: python3-pip
+        name:
+          - python3-pip
+          - python3-venv
         state: present
         update_cache: yes
       
-    - name: Install tutor using pip
+    - name: Create a virtual environment for tutor
+      command: python3 -m venv /opt/tutor-venv
+      args:
+        creates: /opt/tutor-venv
+      
+    - name: Install tutor in virtual environment with full plugins
       pip:
-        name: tutor
+        name: "tutor[full]"
         state: present
-        executable: pip3
+        virtualenv: /opt/tutor-venv
+      
+    - name: Create symlink for tutor
+      file:
+        src: /opt/tutor-venv/bin/tutor
+        dest: /usr/local/bin/tutor
+        state: link
       
     - name: Verify tutor is installed
       command: tutor --version
@@ -34,25 +47,16 @@
     state: directory
     mode: '0755'
 
-- name: Download tutor plugins for K8s
+- name: Configure tutor
   block:
-    - name: Install tutor kubernetes plugin
-      pip:
-        name: tutor-k8s
-        state: present
-        executable: pip3
+    - name: Initialize tutor configuration
+      command: /opt/tutor-venv/bin/tutor config save
+      register: config_init
+      changed_when: config_init.rc == 0
       
-    - name: Enable tutor kubernetes plugin
-      command: tutor plugins enable k8s
-      
-    - name: Install tutor minio plugin
-      pip:
-        name: tutor-minio
-        state: present
-        executable: pip3
-      
-    - name: Enable tutor minio plugin
-      command: tutor plugins enable minio
+    - name: Skip plugin enabling - will be done manually
+      debug:
+        msg: "Skipping plugin enabling - can be done manually with 'tutor plugins enable k8s' if needed"
 
 - name: Get worker nodes IPs from Ansible inventory
   set_fact:
@@ -66,6 +70,9 @@
         - tutor config save --set LMS_HOST={{ openedx_domain }}
         - tutor config save --set CMS_HOST=studio.{{ openedx_domain }}
         - tutor config save --set ENABLE_HTTPS=true
+        - tutor config save --set PLATFORM_NAME="{{ platform_name | default('Open edX on K3s') }}"
+        - tutor config save --set CONTACT_EMAIL={{ contact_email | default('admin@example.com') }}
+        - tutor config save --set LANGUAGE_CODE={{ language_code | default('en') }}
         - tutor config save --set OPENEDX_COMMON_VERSION=nutmeg
         - tutor config save --set K8S_NAMESPACE=openedx
         - tutor config save --set K8S_INGRESS_ENABLED=true
@@ -86,7 +93,7 @@
 - name: Initialize OpenEdX on Kubernetes
   block:
     - name: Deploy OpenEdX to K3s
-      command: tutor k8s start
+      command: /opt/tutor-venv/bin/tutor k8s launch
       register: tutor_deploy
       changed_when: tutor_deploy.rc == 0
       

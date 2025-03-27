@@ -50,6 +50,7 @@ echo "k3s_version=v1.28.5+k3s1" >> "$OUTPUT_FILE"
 echo "primary_control_node=node1" >> "$OUTPUT_FILE"
 
 # Extract first control plane node's IP for use as the primary control node
-echo "primary_control_ip=$(tofu -chdir=\"$DEPLOYMENT_DIR\" show -json | jq -r '.values.outputs.wireguard_ips.value.node_0')" >> "$OUTPUT_FILE"
+NODE1_IP=$(tofu -chdir="$DEPLOYMENT_DIR" show -json | jq -r '.values.outputs.wireguard_ips.value.node_0')
+echo "primary_control_ip=$NODE1_IP" >> "$OUTPUT_FILE"
 
 echo "Inventory generated: $OUTPUT_FILE"
