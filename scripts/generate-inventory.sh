@@ -27,7 +27,7 @@ tofu -chdir="$DEPLOYMENT_DIR" show -json | jq -r '
 
 # Add worker nodes section
 echo -e "\n# K3s Worker Nodes" >> "$OUTPUT_FILE"
-echo "[k3s_node]" >> "$OUTPUT_FILE"
+echo "[k3s_worker]" >> "$OUTPUT_FILE"
 
 # Generate worker nodes (node4, node5, node6)
 tofu -chdir="$DEPLOYMENT_DIR" show -json | jq -r '
@@ -40,7 +40,7 @@ tofu -chdir="$DEPLOYMENT_DIR" show -json | jq -r '
 echo -e "\n# All K3s Nodes" >> "$OUTPUT_FILE"
 echo "[k3s_cluster:children]" >> "$OUTPUT_FILE"
 echo "k3s_control" >> "$OUTPUT_FILE"
-echo "k3s_node" >> "$OUTPUT_FILE"
+echo "k3s_worker" >> "$OUTPUT_FILE"
 
 # Add global variables
 echo -e "\n# Global Variables" >> "$OUTPUT_FILE"
