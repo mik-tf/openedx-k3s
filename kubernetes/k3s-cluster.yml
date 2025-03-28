@@ -20,6 +20,16 @@
     - role: worker
       tags: [worker]
 
+- name: Setup local kubeconfig for K3s cluster
+  hosts: localhost
+  connection: local
+  become: no
+  roles:
+    - role: kubeconfig
+      tags: [kubeconfig]
+  vars:
+    primary_control_node: "{{ hostvars['node1']['inventory_hostname'] }}"
+
 - name: Deploy OpenEdX with Tutor
   hosts: k3s_control[0]
   become: yes
@@ -27,6 +37,4 @@
     - role: tutor
       tags: [tutor]
   vars:
-    openedx_domain: "{{ openedx_domain | default('onlineschool.com') }}"
-    admin_password: "{{ admin_password | default('securepassword') }}"
     worker_public_ips: "{{ groups['k3s_node'] | map('extract', hostvars, ['ansible_host']) | list }}"
