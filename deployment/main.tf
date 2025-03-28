@@ -40,7 +40,7 @@ resource "random_bytes" "ip_seed" {
 
 # Mycelium overlay network
 resource "grid_network" "tfgrid_net" {
-  name        = "tfgrid_ha"
+  name        = "tfgrid_hak"
   nodes       = local.all_nodes
   ip_range    = "10.1.0.0/16"
   add_wg_access = true

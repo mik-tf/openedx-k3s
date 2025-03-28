@@ -1,0 +1,36 @@
+---
+# Preparation tasks for worker nodes
+
+- name: Create OpenEdX data directory on each worker node
+  file:
+    path: /data
+    state: directory
+    mode: '0755'
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['k3s_node'] }}"
+  
+- name: Mount OpenEdX data if not already mounted on each worker node
+  mount:
+    path: /data
+    src: /dev/vdb
+    fstype: ext4
+    state: mounted
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['k3s_node'] }}"
+  ignore_errors: yes
+  
+- name: Create OpenEdX subdirectories on each worker node
+  file:
+    path: "/data/{{ item[1] }}"
+    state: directory
+    mode: '0755'
+  delegate_to: "{{ item[0] }}"
+  with_nested:
+    - "{{ groups['k3s_node'] }}"
+    - [
+        'mysql',
+        'mongodb',
+        'openedx-media',
+        'openedx-static',
+        'lms_storage'
+      ]
