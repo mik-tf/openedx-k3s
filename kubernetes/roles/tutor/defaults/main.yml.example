@@ -16,3 +16,28 @@ admin_password: "changeme"  # Important: Replace with a secure password
 # Uncomment and modify as needed
 # theme_name: "custom-theme"
 # enable_https: true
+
+#---------------------------------------
+# Advanced Components Configuration
+#---------------------------------------
+
+# Master switch for all advanced components
+advanced_components_enabled: true
+
+# E-commerce integration
+ecommerce_enabled: true
+ecommerce_host: "shop.{{ openedx_domain }}"
+ecommerce_payment_processors: '["paypal"]'  # Options: paypal, stripe, etc.
+
+# Certificates service
+credentials_enabled: true
+credentials_host: "credentials.{{ openedx_domain }}"
+
+# Computational tools (JupyterHub + Octave)
+computational_tools_enabled: true
+jupyterhub_host: "jupyter.{{ openedx_domain }}"
+jupyterhub_version: "3.0.0"
+jupyterhub_image: "jupyter/datascience-notebook"
+jupyterhub_tag: "latest"
+octave_image: "delsner/jupyteroctave"
+octave_tag: "latest"

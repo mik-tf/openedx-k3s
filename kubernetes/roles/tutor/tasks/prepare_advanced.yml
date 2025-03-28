@@ -1,0 +1,227 @@
+---
+# Advanced OpenEdX components for STEM educational institutions
+# This file orchestrates the deployment of e-commerce, certificates, and computational tools
+
+- name: Ensure advanced components directory structure exists
+  file:
+    path: /tmp/advanced-components
+    state: directory
+    mode: 0755
+  delegate_to: "{{ primary_control_node }}"
+
+- name: Check if tutor is installed and running
+  shell: tutor local status | grep running
+  register: tutor_running
+  ignore_errors: yes
+  changed_when: false
+  delegate_to: "{{ primary_control_node }}"
+
+- name: Display OpenEdX status
+  debug:
+    msg: "OpenEdX status: {{ 'Running' if tutor_running is succeeded else 'Not running or not installed' }}"
+
+- name: Verify OpenEdX is running
+  fail:
+    msg: "OpenEdX does not appear to be running. Please ensure the basic tutor deployment is complete and functional before installing advanced components."
+  when: tutor_running is failed
+  
+#-----------------------
+# E-commerce Integration
+#-----------------------
+- name: Install OpenEdX E-commerce plugin
+  block:
+    - name: Install ecommerce Tutor plugin
+      shell: pip install tutor-ecommerce
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Enable ecommerce plugin
+      shell: tutor plugins enable ecommerce
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Configure ecommerce settings
+      shell: |
+        tutor config save \
+          --set ECOMMERCE_HOST={{ ecommerce_host | default('ecommerce.' + OPENEDX_HOST) }} \
+          --set ECOMMERCE_PAYMENT_PROCESSORS={{ ecommerce_payment_processors | default('["paypal"]') | string }} \
+          --set ECOMMERCE_ENABLED=true
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Deploy E-commerce service
+      shell: tutor local launch ecommerce-jobs
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Wait for E-commerce service to be ready
+      shell: |
+        timeout 120 bash -c 'until $(curl --output /dev/null --silent --head --fail https://{{ ecommerce_host | default("ecommerce." + OPENEDX_HOST) }}); do printf "."; sleep 5; done'
+      delegate_to: "{{ primary_control_node }}"
+      ignore_errors: yes
+  when: ecommerce_enabled | default(true) | bool
+  tags: ecommerce
+
+#---------------------------
+# Certificate Management
+#---------------------------
+- name: Install OpenEdX Credentials plugin
+  block:
+    - name: Install credentials Tutor plugin
+      shell: pip install tutor-credentials
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Enable credentials plugin
+      shell: tutor plugins enable credentials
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Configure credentials settings
+      shell: |
+        tutor config save \
+          --set CREDENTIALS_HOST={{ credentials_host | default('credentials.' + OPENEDX_HOST) }} \
+          --set CREDENTIALS_ENABLED=true
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Deploy Credentials service
+      shell: tutor local launch credentials-jobs
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Wait for Credentials service to be ready
+      shell: |
+        timeout 120 bash -c 'until $(curl --output /dev/null --silent --head --fail https://{{ credentials_host | default("credentials." + OPENEDX_HOST) }}); do printf "."; sleep 5; done'
+      delegate_to: "{{ primary_control_node }}"
+      ignore_errors: yes
+  when: credentials_enabled | default(true) | bool
+  tags: credentials
+
+#---------------------------
+# Computational Tools (Octave)
+#---------------------------
+- name: Install JupyterHub for computational tools
+  block:
+    - name: Create template for JupyterHub values
+      copy:
+        dest: /tmp/advanced-components/jupyterhub-values.yaml
+        content: |
+          hub:
+            extraConfig:
+              myConfig: |
+                c.Authenticator.admin_users = {'admin'}
+                c.JupyterHub.admin_access = True
+            extraEnv:
+              OAUTH2_AUTHORIZE_URL: https://{{ OPENEDX_HOST }}/oauth2/authorize
+              OAUTH2_TOKEN_URL: https://{{ OPENEDX_HOST }}/oauth2/access_token
+          
+          singleuser:
+            image:
+              name: "{{ jupyterhub_image | default('jupyter/datascience-notebook') }}"
+              tag: "{{ jupyterhub_tag | default('latest') }}"
+            profileList:
+              - display_name: "Python with Octave"
+                description: "Includes Python and GNU Octave for MATLAB-compatible scripts"
+                kubespawner_override:
+                  image: "{{ octave_image | default('delsner/jupyteroctave') }}"
+                  tag: "{{ octave_tag | default('latest') }}"
+              
+            storage:
+              capacity: 10Gi
+              dynamic:
+                storageClass: local-path
+      delegate_to: "{{ primary_control_node }}"
+    
+    - name: Create JupyterHub namespace
+      shell: kubectl create namespace jupyterhub --dry-run=client -o yaml | kubectl apply -f -
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Add JupyterHub Helm repository
+      shell: helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/ && helm repo update
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Install JupyterHub with Helm
+      shell: |
+        helm upgrade --cleanup-on-fail \
+          --install jhub jupyterhub/jupyterhub \
+          --namespace jupyterhub \
+          --create-namespace \
+          --version={{ jupyterhub_version | default('3.0.0') }} \
+          --values /tmp/advanced-components/jupyterhub-values.yaml
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Create ingress for JupyterHub
+      shell: |
+        cat <<EOF | kubectl apply -f -
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: jupyterhub-ingress
+          namespace: jupyterhub
+          annotations:
+            kubernetes.io/ingress.class: traefik
+        spec:
+          rules:
+          - host: {{ jupyterhub_host | default('jupyter.' + OPENEDX_HOST) }}
+            http:
+              paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: proxy-public
+                    port:
+                      number: 80
+        EOF
+      delegate_to: "{{ primary_control_node }}"
+      
+    - name: Create MinIO bucket for computational data
+      shell: |
+        # Using kubectl to run mc in the MinIO namespace
+        kubectl run minio-client --rm --tty -i --restart='Never' --image='minio/mc' --namespace="minio" \
+        --command -- /bin/sh -c "mc config host add myminio http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD && \
+        mc mb myminio/computation -p || echo 'Bucket may already exist' && \
+        mc policy set download myminio/computation"
+      delegate_to: "{{ primary_control_node }}"
+      ignore_errors: yes
+      
+    - name: Link JupyterHub to OpenEdX LTI
+      shell: |
+        # Configure LTI authentication between OpenEdX and JupyterHub
+        tutor config save \
+          --set LTI_JUPYTERHUB_HOST={{ jupyterhub_host | default('jupyter.' + OPENEDX_HOST) }} \
+          --set LTI_JUPYTERHUB_CLIENT_ID={{ jupyterhub_client_id | default('openedx-jupyterhub') }}
+      delegate_to: "{{ primary_control_node }}"
+      ignore_errors: yes
+      
+    - name: Display JupyterHub access information
+      debug:
+        msg: |
+          JupyterHub has been deployed!
+          Access URL: https://{{ jupyterhub_host | default('jupyter.' + OPENEDX_HOST) }}
+          Default admin user: admin
+          Note: You will need to add this domain to your DNS records.
+  when: computational_tools_enabled | default(true) | bool
+  tags: computational
+
+#---------------------------
+# Integration Testing
+#---------------------------
+- name: Verify all components are running
+  block:
+    - name: Check OpenEdX services
+      shell: tutor local status
+      register: tutor_status
+      delegate_to: "{{ primary_control_node }}"
+      changed_when: false
+      
+    - name: Display OpenEdX status
+      debug:
+        var: tutor_status.stdout_lines
+        
+    - name: Check JupyterHub (if enabled)
+      shell: kubectl get pods -n jupyterhub
+      register: jupyter_status
+      delegate_to: "{{ primary_control_node }}"
+      ignore_errors: yes
+      changed_when: false
+      when: computational_tools_enabled | default(true) | bool
+      
+    - name: Display JupyterHub status
+      debug:
+        var: jupyter_status.stdout_lines
+      when: computational_tools_enabled | default(true) | bool and jupyter_status is defined
+  tags: verification

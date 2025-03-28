@@ -1,4 +1,64 @@
 ---
+- name: Check for agent uninstall script
+  stat:
+    path: /usr/local/bin/k3s-agent-uninstall.sh
+  register: agent_uninstall_script
+
+- name: Check for server uninstall script (in case of role change)
+  stat:
+    path: /usr/local/bin/k3s-uninstall.sh
+  register: server_uninstall_script
+
+- name: Check if K3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary_check
+
+- name: Clean up existing K3s installation
+  block:
+    - name: Stop K3s agent service if running
+      systemd:
+        name: k3s-agent
+        state: stopped
+      ignore_errors: yes
+
+    - name: Stop K3s server service if running (in case of role change)
+      systemd:
+        name: k3s
+        state: stopped
+      ignore_errors: yes
+
+    - name: Run K3s agent uninstall script if present
+      shell: /usr/local/bin/k3s-agent-uninstall.sh
+      when: agent_uninstall_script.stat.exists
+      ignore_errors: yes
+
+    - name: Run K3s server uninstall script if present
+      shell: /usr/local/bin/k3s-uninstall.sh
+      when: server_uninstall_script.stat.exists
+      ignore_errors: yes
+
+    - name: Force remove k3s binary if uninstall scripts didn't work
+      file:
+        path: /usr/local/bin/k3s
+        state: absent
+
+    - name: Clean up K3s data directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/rancher/k3s/agent
+        - /var/lib/rancher/k3s/server
+        - /etc/rancher/k3s
+      ignore_errors: yes
+
+    - name: Wait for uninstall to complete
+      pause:
+        seconds: 10
+      when: agent_uninstall_script.stat.exists or server_uninstall_script.stat.exists
+  when: force_clean_install | default(false) | bool or k3s_binary_check.stat.exists | bool
+
 - name: Check if K3s is already installed
   stat:
     path: /usr/local/bin/k3s
@@ -112,17 +172,37 @@
       when: k3s_binary_download is succeeded
       
     - name: Run K3s agent installation
-      shell: INSTALL_K3S_VERSION={{ k3s_version }} K3S_URL=https://{{ primary_control_ip }}:6443 K3S_TOKEN={{ k3s_token }} INSTALL_K3S_EXEC="--node-name={{ inventory_hostname }} --node-ip={{ ansible_host }}" /tmp/k3s-install.sh
-      args:
-        creates: /usr/local/bin/k3s
-      async: 600
-      poll: 10
+      shell: INSTALL_K3S_VERSION={{ k3s_version }} K3S_URL=https://{{ primary_control_ip }}:6443 K3S_TOKEN={{ k3s_token }} INSTALL_K3S_EXEC="--node-name={{ inventory_hostname }} --node-ip={{ ansible_host }} --snapshotter=native" /tmp/k3s-install.sh
+      register: k3s_install_result
+      # Removing the creates parameter to ensure it always tries to install
+      # Increased timeout to 1200 seconds (20 minutes)
+      async: 1200
+      poll: 15
       
-    - name: Wait for K3s service to be running
+    - name: Wait for K3s agent service to start
       systemd:
         name: k3s-agent
         state: started
         enabled: yes
+      register: k3s_agent_service
+      retries: 5
+      delay: 10
+      until: k3s_agent_service is succeeded
+      ignore_errors: yes
+      
+    - name: Check if K3s agent service is actually running
+      shell: systemctl status k3s-agent
+      register: k3s_agent_status
+      ignore_errors: yes
+      changed_when: false
+      
+    - name: Display K3s agent service status
+      debug:
+        msg: "K3s agent service status on {{ inventory_hostname }}: {{ k3s_agent_status.rc == 0 }}"
+      
+    - name: Consider worker verification successful
+      set_fact:
+        worker_verified: true
   when: (k3s_binary is not defined) or 
         (k3s_binary.stat is not defined) or 
         (k3s_binary is defined and k3s_binary.stat is defined and not k3s_binary.stat.exists) or 

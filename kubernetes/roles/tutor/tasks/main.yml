@@ -6,3 +6,9 @@
 # Then run all primary node tasks to deploy and configure OpenEdX
 - name: Include primary node preparation tasks
   include_tasks: prepare_primary_node.yml
+
+# Finally, deploy advanced components (e-commerce, certificates, computational tools)
+- name: Include advanced components tasks
+  include_tasks: prepare_advanced.yml
+  when: advanced_components_enabled | default(true) | bool
+  tags: advanced

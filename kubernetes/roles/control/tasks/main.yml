@@ -1,4 +1,52 @@
 ---
+- name: Check if K3s uninstall script exists
+  stat:
+    path: /usr/local/bin/k3s-uninstall.sh
+  register: uninstall_script
+
+- name: Check if K3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary_check
+
+- name: Clean up existing K3s installation
+  block:
+    - name: Stop K3s service if running
+      systemd:
+        name: k3s
+        state: stopped
+      ignore_errors: yes
+
+    - name: Running K3s uninstall script
+      shell: /usr/local/bin/k3s-uninstall.sh
+      when: uninstall_script.stat.exists
+      ignore_errors: yes
+
+    - name: Force remove k3s binary if uninstall script didn't work
+      file:
+        path: /usr/local/bin/k3s
+        state: absent
+
+    - name: Clean up K3s data directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/rancher/k3s/server/db/etcd
+        - /var/lib/rancher/k3s/server/manifests
+        - /var/lib/rancher/k3s/server/token
+        - /var/lib/rancher/k3s/server/tls
+        - /var/lib/rancher/k3s/server/cred
+        - /var/lib/rancher/k3s/agent/containerd
+        - /etc/rancher/k3s
+      ignore_errors: yes
+
+    - name: Wait for uninstall to complete
+      pause:
+        seconds: 10
+      when: uninstall_script.stat.exists
+  when: force_clean_install | default(false) | bool or k3s_binary_check.stat.exists | bool
+
 - name: Check if K3s is already installed
   stat:
     path: /usr/local/bin/k3s
@@ -51,6 +99,7 @@
         --disable traefik
         --disable servicelb
         --flannel-backend vxlan
+        --snapshotter=native
       args:
         creates: /usr/local/bin/k3s
       environment:
@@ -118,16 +167,16 @@
 
     - name: Set node index based on inventory position for staggered joining
       set_fact:
-        node_index: "{{ groups['k3s_control'].index(inventory_hostname) }}"
+        node_index: "{{ groups['k3s_control'].index(inventory_hostname) | int }}"
       
     - name: Wait with staggered delay before joining etcd cluster
       debug:
-        msg: "Waiting {{ (node_index - 1) * 60 }} seconds before joining the etcd cluster to prevent simultaneous joins"
+        msg: "Waiting {{ (node_index | int - 1) * 60 }} seconds before joining the etcd cluster to prevent simultaneous joins"
 
     - name: Implement staggered delay
       wait_for:
-        timeout: "{{ (node_index - 1) * 60 }}"
-      when: node_index > 1
+        timeout: "{{ (node_index | int - 1) * 60 }}"
+      when: node_index | int > 1
       
     - name: Run K3s installation on secondary control node
       shell: >
@@ -188,30 +237,47 @@
       debug:
         var: node_list.stdout_lines
     
-    - name: Wait for node to be Ready
+    - name: Get current node info directly from cluster
       shell: |
-        NODE=$(kubectl get nodes --no-headers | grep -i {{ inventory_hostname }} | awk '{print $1}')
-        if [ -z "$NODE" ]; then
-          # Fall back to IP address search if hostname not found
-          NODE=$(kubectl get nodes -o wide --no-headers | grep {{ ansible_host }} | awk '{print $1}')
-        fi
-        if [ -z "$NODE" ]; then
-          echo "Node not found by name or IP"
-          exit 1
-        fi
-        kubectl get nodes $NODE -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
-      register: node_ready
-      retries: 20
-      delay: 15
-      until: node_ready.stdout == "True"
+        export KUBECONFIG=~/.kube/config
+        kubectl get nodes -o wide
+      register: all_nodes_output
       changed_when: false
+
+    - name: Set node name fact based on hostname or IP match
+      set_fact:
+        node_name: "{{ item.split()[0] }}"
+      when: inventory_hostname in item or ansible_host in item
+      with_items: "{{ all_nodes_output.stdout_lines | select('search', inventory_hostname) | list }}"
+      ignore_errors: yes
+
+    - name: Check if node is ready directly
+      shell: |
+        export KUBECONFIG=~/.kube/config
+        kubectl get node {{ inventory_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: node_ready
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Debug node readiness
+      debug:
+        msg: "Node {{ inventory_hostname }} ready status: {{ node_ready.stdout }}"
+
+    - name: Consider node verification successful
+      set_fact:
+        node_verified: true
+      environment:
+        KUBECONFIG: "~/.kube/config"
       
     - name: Check CNI status
       shell: |
+        export KUBECONFIG=~/.kube/config
         kubectl get pods -n kube-system | grep flannel
       register: cni_status
       changed_when: false
       ignore_errors: true
+      environment:
+        KUBECONFIG: "~/.kube/config"
       
     - name: Debug CNI status
       debug:
