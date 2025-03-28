@@ -46,7 +46,7 @@ echo "k3s_node" >> "$OUTPUT_FILE"
 echo -e "\n# Global Variables" >> "$OUTPUT_FILE"
 echo "[all:vars]" >> "$OUTPUT_FILE"
 echo "ansible_python_interpreter=/usr/bin/python3" >> "$OUTPUT_FILE"
-echo "k3s_version=v1.28.5+k3s1" >> "$OUTPUT_FILE"
+echo "k3s_version=v1.32.3+k3s1" >> "$OUTPUT_FILE"
 echo "primary_control_node=node1" >> "$OUTPUT_FILE"
 
 # Extract first control plane node's IP for use as the primary control node

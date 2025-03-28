@@ -56,9 +56,13 @@
       register: config_init
       changed_when: config_init.rc == 0
       
-    - name: Skip plugin enabling - will be done manually
-      debug:
-        msg: "Skipping plugin enabling - can be done manually with 'tutor plugins enable k8s' if needed"
+    - name: Enable required plugins
+      command: "{{ item }}"
+      with_items:
+        - tutor plugins enable k8s
+        - tutor plugins enable minio
+      register: plugin_enable
+      changed_when: plugin_enable.rc == 0
 
 - name: Get worker nodes IPs from Ansible inventory
   set_fact:
@@ -80,6 +84,25 @@
         - tutor config save --set K8S_INGRESS_ENABLED=true
       register: tutor_config
       changed_when: tutor_config.rc == 0
+      
+    - name: Configure MinIO for S3-compatible storage
+      command: "{{ item }}"
+      with_items:
+        - tutor config save --set MINIO_HOST=files.{{ openedx_domain }}
+        - tutor config save --set MINIO_BUCKET_NAME=openedx
+        - tutor config save --set MINIO_FILE_UPLOAD_BUCKET_NAME=openedxuploads
+        - tutor config save --set MINIO_GRADES_BUCKET_NAME=openedxgrades
+      register: minio_config
+      changed_when: minio_config.rc == 0
+        
+    - name: Configure video upload pipeline for STEM content
+      command: "{{ item }}"
+      with_items:
+        - tutor config save --set "FEATURES['ENABLE_VIDEO_UPLOAD_PIPELINE']=True"
+        - tutor config save --set "VIDEO_UPLOAD_PIPELINE['VEM_S3_BUCKET']='files'"
+        - tutor config save --set "VIDEO_UPLOAD_PIPELINE['ROOT_PATH']='videos'"
+      register: video_config
+      changed_when: video_config.rc == 0
       
     - name: Set admin credentials
       command: >
@@ -157,3 +180,18 @@
       register: tutor_demo
       changed_when: tutor_demo.rc == 0
       ignore_errors: yes
+      
+    - name: Verify MinIO buckets are created
+      shell: kubectl get pods -n openedx | grep minio
+      register: minio_pods
+      changed_when: false
+      
+    - name: Display MinIO access info
+      debug:
+        msg: |
+          MinIO is configured for STEM content storage:
+          - Storage endpoint: https://{{ 'files.' + openedx_domain }}
+          - Console access: https://{{ 'minio.' + openedx_domain }}
+          - Access credentials can be retrieved with:
+            tutor config printvalue OPENEDX_AWS_ACCESS_KEY
+            tutor config printvalue OPENEDX_AWS_SECRET_ACCESS_KEY

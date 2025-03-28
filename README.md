@@ -13,6 +13,7 @@ This repository combines infrastructure provisioning via Terraform/OpenTofu with
 - **Fully Automated**: Single command deployment with `deploy.sh`
 - **WireGuard Integration**: Secure network connectivity between nodes
 - **High Availability**: Support for HA cluster deployment
+- **S3-Compatible Storage**: MinIO integration for STEM content (videos, PDFs, simulations)
 
 ## Prerequisites
 
@@ -79,6 +80,31 @@ Both configuration files (`terraform.tfvars` and `main.yml`) contain comments ex
 - **Kubernetes**: Storage classes, networking settings
 
 Refer to the example files for all available configuration options.
+
+### STEM Content Storage with MinIO
+
+This deployment includes MinIO integration for storing educational content such as videos, PDFs, and simulations - critical for STEM education. MinIO provides S3-compatible object storage that works seamlessly with OpenEdX.
+
+#### Key Features
+
+- **Video Upload Pipeline**: Properly configured for course creators to upload lecture videos
+- **Dedicated Buckets**: Separate storage areas for different content types
+  - `openedx`: General course content
+  - `openedxuploads`: Student assignments and submissions
+  - `videos`: Educational video content
+- **Web UI for Management**: Access at `https://minio.YOUR_DOMAIN`
+
+#### Accessing MinIO
+
+After deployment, you can access:
+- MinIO storage endpoint: `https://files.YOUR_DOMAIN`
+- MinIO admin console: `https://minio.YOUR_DOMAIN`
+
+To retrieve the access credentials:
+```bash
+tutor config printvalue OPENEDX_AWS_ACCESS_KEY
+tutor config printvalue OPENEDX_AWS_SECRET_ACCESS_KEY
+```
 
 ## Troubleshooting
 

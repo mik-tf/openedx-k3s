@@ -14,7 +14,7 @@
       tags: [control]
 
 - name: Join K3s Worker Nodes
-  hosts: k3s_node
+  hosts: k3s_worker
   become: yes
   roles:
     - role: worker
@@ -37,4 +37,4 @@
     - role: tutor
       tags: [tutor]
   vars:
-    worker_public_ips: "{{ groups['k3s_node'] | map('extract', hostvars, ['ansible_host']) | list }}"
+    worker_public_ips: "{{ groups['k3s_worker'] | map('extract', hostvars, ['ansible_host']) | list }}"

@@ -42,16 +42,15 @@
 
     - name: Run K3s installation on primary control node
       shell: >
-        INSTALL_K3S_EXEC="--snapshotter=fuse-overlayfs" /tmp/k3s-install.sh
+        /tmp/k3s-install.sh
         --cluster-init
         --tls-san {{ primary_control_ip }}
         --node-name {{ inventory_hostname }}
         --node-ip={{ ansible_host }}
         --write-kubeconfig-mode 644
         --disable traefik
+        --disable servicelb
         --flannel-backend vxlan
-        --flannel-iface="eth0"
-        --no-deploy servicelb
       args:
         creates: /usr/local/bin/k3s
       environment:
@@ -117,18 +116,31 @@
       until: k3s_binary_download_secondary is succeeded
       ignore_errors: true
 
+    - name: Set node index based on inventory position for staggered joining
+      set_fact:
+        node_index: "{{ groups['k3s_control'].index(inventory_hostname) }}"
+      
+    - name: Wait with staggered delay before joining etcd cluster
+      debug:
+        msg: "Waiting {{ (node_index - 1) * 60 }} seconds before joining the etcd cluster to prevent simultaneous joins"
+
+    - name: Implement staggered delay
+      wait_for:
+        timeout: "{{ (node_index - 1) * 60 }}"
+      when: node_index > 1
+      
     - name: Run K3s installation on secondary control node
       shell: >
-        INSTALL_K3S_EXEC="--snapshotter=fuse-overlayfs" /tmp/k3s-install.sh
+        INSTALL_K3S_EXEC="server" /tmp/k3s-install.sh
         --server https://{{ primary_control_ip }}:6443
         --token {{ k3s_token }}
         --node-name {{ inventory_hostname }}
         --node-ip={{ ansible_host }}
         --write-kubeconfig-mode 644
         --disable traefik
+        --disable servicelb
         --flannel-backend vxlan
-        --flannel-iface="eth0"
-        --no-deploy servicelb
+        --snapshotter=native
       args:
         creates: /usr/local/bin/k3s
       environment:
