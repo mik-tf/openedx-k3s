@@ -3,7 +3,7 @@ set -e
 
 # Get script directory
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-DEPLOYMENT_DIR="$SCRIPT_DIR/../deployment"
+DEPLOYMENT_DIR="$SCRIPT_DIR/../infrastructure"
 
 echo "Cleaning Terraform/OpenTofu state and related files..."
 
@@ -33,9 +33,9 @@ if [ -f "/etc/wireguard/k3s.conf" ]; then
 fi
 
 # Remove inventory
-if [ -f "$SCRIPT_DIR/../kubernetes/inventory.ini" ]; then
+if [ -f "$SCRIPT_DIR/../platform/inventory.ini" ]; then
   echo "Removing Ansible inventory..."
-  rm -f "$SCRIPT_DIR/../kubernetes/inventory.ini"
+  rm -f "$SCRIPT_DIR/../platform/inventory.ini"
 fi
 
 echo "Cleanup completed!"

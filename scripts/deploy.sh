@@ -7,9 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # --- Configuration ---
-# Define the path to your Terraform/Tofu configuration directory
-TF_CONFIG_DIR_DEPLOYMENT="${REPO_ROOT}/deployment"  # Absolute path to deployment directory
-TF_CONFIG_DIR_KUBERNETES="${REPO_ROOT}/kubernetes"  # Absolute path to kubernetes directory
+# Define the path to your configuration directories
+TF_CONFIG_DIR_DEPLOYMENT="${REPO_ROOT}/infrastructure"  # Absolute path to infrastructure directory
+TF_CONFIG_DIR_KUBERNETES="${REPO_ROOT}/platform"  # Absolute path to platform directory
 
 # Domain configuration is now managed through Ansible in tutor/defaults/main.yml
 
@@ -64,7 +64,7 @@ fi
 
 # Deploy K3s cluster first
 echo "Deploying K3s cluster..."
-if ! ansible-playbook k3s-cluster.yml -t common,control,worker; then
+if ! ansible-playbook site.yml -t common,control,worker; then
   echo "K3s deployment failed!"
   # Add additional error handling/notification here
   exit 1
@@ -76,14 +76,14 @@ sleep 60
 
 # Deploy OpenEdX with Tutor
 echo "Deploying OpenEdX with Tutor (using domain from Ansible configuration)..."
-if ! ansible-playbook k3s-cluster.yml -t tutor; then
+if ! ansible-playbook site.yml -t tutor; then
   echo "OpenEdX deployment failed!"
   # Add additional error handling/notification here
   exit 1
 fi
 
 # Extract domain from Ansible configuration for DNS setup
-OPENEDX_DOMAIN=$(grep -oP 'openedx_domain: "\K[^"]++' "${REPO_ROOT}/kubernetes/roles/tutor/defaults/main.yml")
+OPENEDX_DOMAIN=$(grep -oP 'openedx_domain: "\K[^"]++' "${REPO_ROOT}/platform/roles/tutor/defaults/main.yml")
 
 # Configure DNS
 echo "Configuring DNS for OpenEdX (${OPENEDX_DOMAIN})..."

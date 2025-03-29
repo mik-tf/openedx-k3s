@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Get script directory
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-DEPLOYMENT_DIR="$SCRIPT_DIR/../deployment"
-OUTPUT_FILE="$SCRIPT_DIR/../kubernetes/inventory.ini"
+DEPLOYMENT_DIR="$SCRIPT_DIR/../infrastructure"
+OUTPUT_FILE="$SCRIPT_DIR/../platform/inventory.ini"
 
 # Check dependencies
 command -v jq >/dev/null 2>&1 || { 

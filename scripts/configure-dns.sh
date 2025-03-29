@@ -3,7 +3,7 @@ set -e
 
 # Get script directory
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-KUBERNETES_DIR="$SCRIPT_DIR/../kubernetes"
+KUBERNETES_DIR="$SCRIPT_DIR/../platform"
 
 # Get domain from command line argument
 DOMAIN=${1:-"onlineschool.com"}

@@ -34,12 +34,12 @@ This repository combines infrastructure provisioning via Terraform/OpenTofu with
 2. Configure your deployment:
    ```bash
    # Set up Terraform/OpenTofu configuration
-   cp deployment/terraform.tfvars.example deployment/terraform.tfvars
-   nano deployment/terraform.tfvars
+   cp infrastructure/terraform.tfvars.example infrastructure/terraform.tfvars
+   nano infrastructure/terraform.tfvars
    
    # Set up OpenEdX configuration
-   cp kubernetes/roles/tutor/defaults/main.yml.example kubernetes/roles/tutor/defaults/main.yml
-   nano kubernetes/roles/tutor/defaults/main.yml
+   cp platform/roles/tutor/defaults/main.yml.example platform/roles/tutor/defaults/main.yml
+   nano platform/roles/tutor/defaults/main.yml
    ```
 
 3. Deploy with a single command:
@@ -57,11 +57,11 @@ This repository combines infrastructure provisioning via Terraform/OpenTofu with
 
 ```
 openedx-k3s/
-├── deployment/         # Terraform/OpenTofu configuration
-├── kubernetes/         # Ansible playbooks and K3s configuration
-│   ├── roles/          # Ansible roles for cluster setup
+├── infrastructure/    # Infrastructure provisioning (via OpenTofu)
+├── platform/           # Platform configuration and application deployment (via Ansible)
+│   ├── roles/          # Configuration components
 │   ├── group_vars/     # Variables for Ansible
-│   └── k3s-cluster.yml # Main Ansible playbook
+│   └── site.yml        # Main deployment playbook
 ├── scripts/            # Deployment and utility scripts
 │   ├── deploy.sh       # Main deployment script
 │   ├── wg.sh           # WireGuard setup script
